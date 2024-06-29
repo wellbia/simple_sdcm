@@ -1,220 +1,144 @@
 # https://github.com/microsoft/SDCM
 
-import http.client, json, requests
+import http.client
+import json
+import requests
 from urllib.parse import quote
 
 
 class Client:
     def __init__(self, tenant_id, client_id, client_secret):
-        self.tenantId = tenant_id
-        self.clientId = client_id
-        self.clientSecret = client_secret
-        self.tokenResource = ""
-        self.accessToken = ""
+        """Initializes the client with tenant, client, and secret credentials."""
+        self.tenant_id = tenant_id
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.token_resource = "https://manage.devcenter.microsoft.com"
+        self.access_token = ""
 
         self.version = "1.0"
         self.tenant = "my"
 
-        self.tokenEndpointTemplate = "/{0}/oauth2/token"
-        self.getProductsUrlTemplate = "/v{0}/{1}/hardware/products"
-        self.getSubmissionUrlTemplate = (
+        self.token_endpoint_template = "/{0}/oauth2/token"
+        self.get_products_url_template = "/v{0}/{1}/hardware/products"
+        self.get_submission_url_template = (
             "/v{0}/{1}/hardware/products/{2}/submissions/{3}"
         )
-        self.commitSubmissionUrlTemplate = (
+        self.commit_submission_url_template = (
             "/v{0}/{1}/hardware/products/{2}/submissions/{3}/commit"
         )
-        self.updateUrlTemplate = "/v{0}/{1}/hardware/products/{2}/submissions/{3}/"
-        self.productUrlTemplate = "/v{0}/{1}/hardware/products"
-        self.productUrlWithContinuationTemplate = "/v{0}/{1}/{2}"
-        self.getProductUrlTemplate = "/v{0}/{1}/hardware/products/{2}"
-        self.createSubmissionUrlTemplate = "/v{0}/{1}/hardware/products/{2}/submissions"
-        self.productSubmissionStatusUrlTemplate = (
+        self.update_url_template = "/v{0}/{1}/hardware/products/{2}/submissions/{3}/"
+        self.product_url_template = "/v{0}/{1}/hardware/products"
+        self.product_url_with_continuation_template = "/v{0}/{1}/{2}"
+        self.get_product_url_template = "/v{0}/{1}/hardware/products/{2}"
+        self.create_submission_url_template = (
+            "/v{0}/{1}/hardware/products/{2}/submissions"
+        )
+        self.product_submission_status_url_template = (
             "/v{0}/{1}/hardware/products/{2}/submissions/{3}"
         )
 
-    def SetTokenResource(self, tokenResource):
-        self.tokenResource = tokenResource
+    def __set_client_credential_access_token(self, token):
+        """Sets the token resource."""
+        self.access_token = token
 
-    def GetClientCredentialAccessToken(self):
-        tokenRequestBody = "grant_type=client_credentials&client_id={0}&client_secret={1}&resource={2}".format(
-            self.clientId, self.clientSecret, self.tokenResource
+    def __get_client_credential_access_token(self):
+        """Retrieves access token using client credentials."""
+        token_request_body = "grant_type=client_credentials&client_id={0}&client_secret={1}&resource={2}".format(
+            self.client_id, self.client_secret, self.token_resource
         )
         headers = {"Content-Type": "application/x-www-form-urlencoded; charset=utf-8"}
-        tokenConnection = http.client.HTTPSConnection("login.microsoftonline.com")
-        tokenConnection.request(
+        token_connection = http.client.HTTPSConnection("login.microsoftonline.com")
+        token_connection.request(
             "POST",
-            self.tokenEndpointTemplate.format(self.tenantId),
-            tokenRequestBody,
+            self.token_endpoint_template.format(self.tenant_id),
+            token_request_body,
             headers=headers,
         )
 
-        tokenResponse = tokenConnection.getresponse()
-        # print(tokenResponse.status)
-        tokenJson = json.loads(tokenResponse.read().decode())
-        # print(tokenJson["access_token"])
+        token_response = token_connection.getresponse()
+        token_json = json.loads(token_response.read().decode())
+        token_connection.close()
 
-        tokenConnection.close()
+        self.access_token = token_json["access_token"]
+        return self.access_token
 
-        return tokenJson["access_token"]
+    def setup_access_token(self):
+        """Sets up the access token for the client."""
+        self.__set_client_credential_access_token(
+            self.__get_client_credential_access_token()
+        )
 
-    def SetClientCredentialAccessToken(self, accessToken):
-        self.accessToken = accessToken
-
-    def GetProducts(self):
-        headers = {
-            "Authorization": "Bearer " + self.accessToken,
+    def get_headers(self):
+        """Returns headers for requests."""
+        return {
+            "Authorization": f"Bearer {self.access_token}",
             "Content-type": "application/json",
             "User-Agent": "Python",
         }
-        ingestionConnection = http.client.HTTPSConnection(
-            "manage.devcenter.microsoft.com"
+
+    def make_request(self, method, url_template, *url_params, body=None):
+        """Makes an HTTP request and returns the response JSON."""
+        headers = self.get_headers()
+        connection = http.client.HTTPSConnection("manage.devcenter.microsoft.com")
+        url = url_template.format(self.version, self.tenant, *url_params)
+
+        connection.request(method, url, body, headers=headers)
+        response = connection.getresponse()
+        response_data = response.read().decode()
+        response_json = json.loads(response_data)
+        connection.close()
+
+        return response_json
+
+    def get_products(self):
+        """Fetches all products."""
+        return self.make_request("GET", self.get_products_url_template)
+
+    def get_product(self, product_id):
+        """Fetches a specific product by ID."""
+        return self.make_request("GET", self.get_product_url_template, product_id)
+
+    def get_submission(self, product_id, submission_id):
+        """Fetches a specific submission by product and submission ID."""
+        return self.make_request(
+            "GET", self.get_submission_url_template, product_id, submission_id
         )
 
-        ingestionConnection.request(
-            "GET",
-            self.getProductsUrlTemplate.format(self.version, self.tenant),
-            headers=headers,
-        )
-        res = ingestionConnection.getresponse()
-        # print(res.status)
-        resJsonObject = json.loads(res.read().decode())
-        return resJsonObject
+    def create_product(self, product_body):
+        """Creates a new product."""
+        return self.make_request("POST", self.product_url_template, body=product_body)
 
-    def GetProduct(self, productId):
-        headers = {
-            "Authorization": "Bearer " + self.accessToken,
-            "Content-type": "application/json",
-            "User-Agent": "Python",
-        }
-        ingestionConnection = http.client.HTTPSConnection(
-            "manage.devcenter.microsoft.com"
-        )
-
-        ingestionConnection.request(
-            "GET",
-            self.getProductUrlTemplate.format(self.version, self.tenant, productId),
-            headers=headers,
-        )
-        res = ingestionConnection.getresponse()
-        # print(res.status)
-        resJsonObject = json.loads(res.read().decode())
-        return resJsonObject
-
-    def GetSubmission(self, productId, submissionId):
-        headers = {
-            "Authorization": "Bearer " + self.accessToken,
-            "Content-type": "application/json",
-            "User-Agent": "Python",
-        }
-        ingestionConnection = http.client.HTTPSConnection(
-            "manage.devcenter.microsoft.com"
-        )
-
-        ingestionConnection.request(
-            "GET",
-            self.getSubmissionUrlTemplate.format(
-                self.version, self.tenant, productId, submissionId
-            ),
-            headers=headers,
-        )
-        res = ingestionConnection.getresponse()
-        # print(res.status)
-        resJsonObject = json.loads(res.read().decode())
-        return resJsonObject
-
-    def CreateProduct(self, productBody):
-        headers = {
-            "Authorization": "Bearer " + self.accessToken,
-            "Content-type": "application/json",
-            "User-Agent": "Python",
-        }
-        ingestionConnection = http.client.HTTPSConnection(
-            "manage.devcenter.microsoft.com"
-        )
-
-        ingestionConnection.request(
+    def create_submission(self, product_id, submission_body):
+        """Creates a new submission for a product."""
+        return self.make_request(
             "POST",
-            self.productUrlTemplate.format(self.version, self.tenant),
-            productBody,
-            headers=headers,
-        )
-        res = ingestionConnection.getresponse()
-        # print(res.status)
-        resJsonObject = json.loads(res.read().decode())
-        return resJsonObject
-
-    def CreateSubmission(self, productId, submissionBody):
-        headers = {
-            "Authorization": "Bearer " + self.accessToken,
-            "Content-type": "application/json",
-            "User-Agent": "Python",
-        }
-        ingestionConnection = http.client.HTTPSConnection(
-            "manage.devcenter.microsoft.com"
+            self.create_submission_url_template,
+            product_id,
+            body=submission_body,
         )
 
-        ingestionConnection.request(
-            "POST",
-            self.createSubmissionUrlTemplate.format(
-                self.version, self.tenant, productId
-            ),
-            submissionBody,
-            headers=headers,
-        )
-        res = ingestionConnection.getresponse()
-        # print(res.status)
-        resJsonObject = json.loads(res.read().decode())
-        return resJsonObject
-
-    def CommitSubmission(self, productId, submissionId):
-        headers = {
-            "Authorization": "Bearer " + self.accessToken,
-            "Content-type": "application/json",
-            "User-Agent": "Python",
-        }
-        ingestionConnection = http.client.HTTPSConnection(
-            "manage.devcenter.microsoft.com"
+    def commit_submission(self, product_id, submission_id):
+        """Commits a submission for a product."""
+        return self.make_request(
+            "POST", self.commit_submission_url_template, product_id, submission_id
         )
 
-        ingestionConnection.request(
-            "POST",
-            self.commitSubmissionUrlTemplate.format(
-                self.version, self.tenant, productId, submissionId
-            ),
-            headers=headers,
-        )
-        res = ingestionConnection.getresponse()
-        print(res.status)
-
-    def GetProductSubmissionStatus(self, productId, submissionId):
-        headers = {
-            "Authorization": "Bearer " + self.accessToken,
-            "Content-type": "application/json",
-            "User-Agent": "Python",
-        }
-        ingestionConnection = http.client.HTTPSConnection(
-            "manage.devcenter.microsoft.com"
-        )
-
-        ingestionConnection.request(
+    def get_product_submission_status(self, product_id, submission_id):
+        """Fetches the status of a product submission."""
+        return self.make_request(
             "GET",
-            self.productSubmissionStatusUrlTemplate.format(
-                self.version, self.tenant, productId, submissionId
-            ),
-            headers=headers,
+            self.product_submission_status_url_template,
+            product_id,
+            submission_id,
         )
-        res = ingestionConnection.getresponse()
-        # print(res.status)
-        resJsonObject = json.loads(res.read().decode())
-        return resJsonObject
 
-    def UploadFile(self, filePath, fileUploadUrl):
-        f = open(filePath, "rb")
-        encoded_uri = quote(fileUploadUrl, safe=":/?&=")
-        uploadResponse = requests.put(
-            encoded_uri,
-            f,
-            headers={"x-ms-blob-type": "BlockBlob"},
-        )
-        f.close()
-        print(uploadResponse.status_code)
+    def upload_file(self, file_path, file_upload_url):
+        """Uploads a file to the specified URL."""
+        with open(file_path, "rb") as file:
+            encoded_url = quote(file_upload_url, safe=":/?&=")
+            upload_response = requests.put(
+                encoded_url,
+                file,
+                headers={"x-ms-blob-type": "BlockBlob"},
+            )
+        return upload_response.status_code
