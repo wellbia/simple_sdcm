@@ -145,7 +145,7 @@ class Client:
                 file,
                 headers={"x-ms-blob-type": "BlockBlob"},
             )
-        print(file_upload_url)
+
         return upload_response.status_code
 
     def wait(self, product_id, submission_id, verbose):
