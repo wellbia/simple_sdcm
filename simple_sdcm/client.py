@@ -4,6 +4,7 @@ import http.client
 import json
 import requests
 from urllib.parse import quote
+import time
 
 
 class Client:
@@ -84,8 +85,12 @@ class Client:
 
         connection.request(method, url, body, headers=headers)
         response = connection.getresponse()
-        response_data = response.read().decode()
-        response_json = json.loads(response_data)
+        response_data = response.read().decode().strip()
+
+        if len(response_data) != 0:
+            response_json = json.loads(response_data)
+        else:
+            response_json = {}
         connection.close()
 
         return response_json
@@ -135,10 +140,29 @@ class Client:
     def upload_file(self, file_path, file_upload_url):
         """Uploads a file to the specified URL."""
         with open(file_path, "rb") as file:
-            encoded_url = quote(file_upload_url, safe=":/?&=")
             upload_response = requests.put(
-                encoded_url,
+                file_upload_url,
                 file,
                 headers={"x-ms-blob-type": "BlockBlob"},
             )
+        print(file_upload_url)
         return upload_response.status_code
+
+    def wait(self, product_id, submission_id, verbose):
+        """Waits for a submission to complete."""
+        while True:
+            res = self.get_product_submission_status(product_id, submission_id)
+
+            if verbose:
+                step = res["workflowStatus"]["currentStep"]
+                state = res["workflowStatus"]["state"]
+                print(f"{step} {state}")
+
+            if res["workflowStatus"]["state"] == "failed":
+                return
+
+            for item in res["downloads"]["items"]:
+                if item["type"].lower() == "signedpackage":
+                    return item["url"]
+
+            time.sleep(5)
